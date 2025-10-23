@@ -1,43 +1,57 @@
-"""
-clean_data.py
---------------
-Cleans the raw NBA data file and prepares it for analysis.
-"""
-
 import pandas as pd
-import glob
 
-def clean_nba_data(input_file, output_file):
-    """Reads, cleans, and saves the NBA data."""
-    print("Cleaning NBA data...")
+# === File paths ===
+raw_csv = r"C:\Users\kvass\OneDrive\Desktop\nba_predictor\data\nba_games_raw_20251023.csv"
+output_csv = r"C:\Users\kvass\OneDrive\Desktop\nba_predictor\data\nba_games_clean.csv"
 
-    df = pd.read_csv(input_file)
+# === Load raw data ===
+df = pd.read_csv(raw_csv)
+print(f"✅ Loaded raw data: {len(df)} rows")
 
-    # Rename WL column to WIN (if it exists)
-    if 'WL' in df.columns:
-        df.rename(columns={'WL': 'WIN'}, inplace=True)
+# === Official 30 NBA teams (team *names*) ===
+nba_team_names = [
+    "Atlanta Hawks", "Boston Celtics", "Brooklyn Nets", "Charlotte Hornets", "Chicago Bulls",
+    "Cleveland Cavaliers", "Dallas Mavericks", "Denver Nuggets", "Detroit Pistons", "Golden State Warriors",
+    "Houston Rockets", "Indiana Pacers", "LA Clippers", "Los Angeles Lakers", "Memphis Grizzlies",
+    "Miami Heat", "Milwaukee Bucks", "Minnesota Timberwolves", "New Orleans Pelicans", "New York Knicks",
+    "Oklahoma City Thunder", "Orlando Magic", "Philadelphia 76ers", "Phoenix Suns", "Portland Trail Blazers",
+    "Sacramento Kings", "San Antonio Spurs", "Toronto Raptors", "Utah Jazz", "Washington Wizards"
+]
 
-    # Convert WIN to numeric (1 for W, 0 for L)
-    df['WIN'] = df['WIN'].apply(lambda x: 1 if x == 'W' else 0)
+# === Find column with team names ===
+team_col = None
+for col in df.columns:
+    if "TEAM_NAME" in col.upper():
+        team_col = col
+        break
 
-    # Safely handle missing or non-string values in MATCHUP
-    def home_away_flag(x):
-        if isinstance(x, str):
-            return 1 if 'vs.' in x else 0
-        return 0  # default if NaN or invalid
-    df['IS_HOME'] = df['MATCHUP'].apply(home_away_flag)
+if not team_col:
+    raise ValueError("❌ No column found containing 'TEAM_NAME'!")
 
-    # Convert GAME_DATE to datetime
-    df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'], errors='coerce')
+print(f"Detected team column: {team_col}")
 
-    # Drop rows with missing GAME_DATE just in case
-    df = df.dropna(subset=['GAME_DATE'])
+# === Filter only NBA teams ===
+df = df[df[team_col].isin(nba_team_names)].copy()
+print(f"🏀 Rows after filtering NBA teams: {len(df)}")
 
-    # Save cleaned version
-    df.to_csv(output_file, index=False)
-    print(f"✅ Cleaned data saved to {output_file}")
+# === Handle missing values ===
+df = df.fillna(method="ffill").fillna(method="bfill")
 
-if __name__ == "__main__":
-    # Automatically find the latest raw data file
-    latest_raw = sorted(glob.glob("data/nba_games_raw_*.csv"))[-1]
-    clean_nba_data(latest_raw, "data/nba_games_clean.csv")
+# === Create WIN column ===
+if "WL" in df.columns:
+    df["WIN"] = df["WL"].apply(lambda x: 1 if str(x).strip().upper() == "W" else 0)
+elif "PTS" in df.columns and "PTS_OPP" in df.columns:
+    df["WIN"] = (df["PTS"] > df["PTS_OPP"]).astype(int)
+else:
+    print("⚠️ No WL or score data found to create WIN column.")
+
+# === Create IS_HOME column ===
+if "MATCHUP" in df.columns:
+    df["IS_HOME"] = df["MATCHUP"].apply(lambda x: 1 if isinstance(x, str) and "vs." in x else 0)
+else:
+    df["IS_HOME"] = 0  # fallback
+
+# === Save cleaned data ===
+df.to_csv(output_csv, index=False)
+print(f"✅ Cleaned dataset saved to: {output_csv}")
+print(f"📊 Final columns: {list(df.columns)}")
